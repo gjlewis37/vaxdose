@@ -1,1 +1,270 @@
-Test
+## Attempting the mega model (initial first)
+
+## TODO: Lagged transition to vaccine efficacy
+## 'Resetting recovery period after initial vax (typically v. minor correction)
+
+
+Mif = matrix(nrow = 1100, ncol = 30) ## Constructing matrix
+Mif[1:100,] = 0 ## Preloading zeros (for use later)
+colnames(Mif) = c("S", "I", "R", "D", "V1n", "V1e", "V1i", "V1r", "V2n", "V2e", "V2i", "V2r",
+                  "StI", "StV1n", "StV1e", "ItR", "ItD", "V1ntI", "V1ntV2n", "V1ntV2e",
+                  "V1etV1r", "V1etV1i", "V1etV2e", "V1itV1r", "V1itV2i", "V1rtV2r", "V2ntI",
+                  "V2etV2r", "V2etV2i", "V2itV2r")
+
+# States:
+# S = Susceptible
+# I = Infected
+# R = Recovered
+# D = Dead
+# V1n = Initial vaccination, ineffective (i.e. no protection)
+# V1e = Initial vaccination, effective (i.e. protection)
+# V1i = Initial vaccination, infected (e.g. effective vaccination prevents death but still allows transmission)
+# V1r = Initial vaccination, recovered (e.g. either via vaccination protection from infection)
+# V2n = Booster vaccination, ineffective (i.e. no protection)
+# V2e = Booster vaccination, effective (i.e. protection)
+# V2i = Booster vaccination, infected (e.g. effective vaccination prevents death but still allows transmission)
+# V2r = Booster vaccination, recovered (e.g. either via vaccination protection from infection)
+
+#Transitions
+# StI = S to I
+# StV1n = S to V1n
+#etc.
+
+#Initial conditions
+Mif[101,] = c(0.898, 0.001, 0.01, 0.001, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+#Other variables
+R = 1.4
+V = 0.1 # Rate of vaccination
+VE1 = 0.7 ## General sense efficacy (initial dose)
+VE2 = 0.9 ## General sense efficacy (booster dose)
+VE1Ip = 1 ## Coefficient of infection protection - I.e. how effective the vaccine is at preventing someone being infectious
+VE2Ip = 1 ## As above, but for second vaccination
+IFR = 0.005 #0.5% population IFR
+
+
+
+for (i in 1:999) {
+  #Transitions
+  ## FROM S
+  Mif[i+100, "StI"] = R/7 * Mif[i+100,"S"] * (Mif[i+100, "I"]+Mif[i+100, "V1i"]+Mif[i+100, "V2i"])
+    #Infection from infected (whether vaccinated or not). Beta defined implicitly from recovery time (see below)
+  
+  StV1 = V ## As boosters first, intermediate check of number vaccinated
+    
+    if ((Mif[i+100, "S"] - StV1) < V) ## Checking whether less susceptibles than vaccination rate
+      {StV1 = Mif[i+100, "S"]} ## If so, setting number vaccinated to the remainder
+    
+    if (Mif[i+100, "S"] - StV1 < 0.00000001) ## Lazy catch to ensure S remains non-negative
+      {StV1 = 0}
+  
+  Mif[i+100, "StV1n"] = StV1 * (1-VE1) ## Of those initially vaccinated, some will be ineffective (1-VE of initial dose)
+  
+  Mif[i+100, "StV1e"] = StV1 * VE1 ##Those which are not are effective
+  
+  
+  ## FROM I
+  if (i<8){
+    Mif[i+100, "ItR"] = Mif[101, "I"] * (1-IFR)/7 ##Delay of 7 days representing infectious period
+    Mif[i+100, "ItD"] = Mif[101, "I"] * IFR/7 ## Survival governed by IFR (i.e ItD/(ItD +iTR) = IFR)
+      # Cludge to remove initial infected pop, assuming uniform infection.
+  } else {
+    Mif[i+100, "ItR"] = (Mif[i+93, "StI"] + Mif[i+93, "V1ntI"] + Mif[i+93, "V2ntI"]) * (1-IFR) ##Delay of 7 days representing infectious period
+    
+    Mif[i+100, "ItD"] = (Mif[i+93, "StI"] + Mif[i+93, "V1ntI"] + Mif[i+93, "V2ntI"]) * IFR ## Survival governed by IFR (i.e ItD/(ItD +iTR) = IFR)
+    
+    }
+ 
+  
+  ###Intermediate variable - V1tV2
+  V1tV2 = V - StV1 ##On boosters first, only given after no more susceptibles (i.e. no more initial vaccination)
+    
+    if (Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"]  - V1tV2 < 0) ## Checking whether less susceptibles than vaccination rate
+    {V1tV2 = Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"]} ## If so, setting number vaccinated to the remainder
+    
+    if (Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"] - V1tV2 < 0.000001) ## Lazy catch to avoid non-negative/floating point rounding etc
+    {V1tV2 = 0}
+  
+  
+  ## FROM V1n
+  Mif[i+100, "V1ntI"] = R/7 * Mif[i+100,"V1n"] * (Mif[i+100, "I"]+Mif[i+100, "V1i"]+Mif[i+100, "V2i"])
+    ##If vaccine ineffective, risk of transition to I, with same coefficient as StI
+  
+  if((Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"]) == 0){
+    Mif[i+100, "V1ntV2n"] = 0
+    Mif[i+100, "V1ntV2e"] = 0
+  } else {
+    Mif[i+100, "V1ntV2n"] = (1-VE2)/(1-VE1) *V1tV2 * Mif[i+100, "V1n"] / (Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"])
+    Mif[i+100, "V1ntV2e"] = (1 - (1-VE2)/(1-VE1)) * V1tV2 * Mif[i+100, "V1n"] / (Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"])}
+  # First term in both is the chance of 'booster rescue'. P(Second dose failing|first dose failing) is the prop 
+  # ineffective after second vaccine/ prop ineffective after first. Then the rate is the total V1->V2 rate proportionate
+  # to those in other groups.
+  
+
+  ## FROM V1e
+    if (Mif[i+93, "V1e"] == 0){
+      rV1e1 = VE1*VE1Ip*Mif[i+93, "StV1e"]
+    } else
+      {rV1e1 = VE1*VE1Ip*Mif[i+93, "StV1e"] * (1 - (Mif[i+93, "V1etV1i"] + Mif[i+93, "V1etV2e"])/Mif[i+93, "V1e"])}
+    if (Mif[i+94, "V1e"] == 0){
+      rV1e2 = rV1e1
+    } else
+      {rV1e2 = rV1e1 * (1 - (Mif[i+94, "V1etV1i"] + Mif[i+94, "V1etV2e"])/Mif[i+94, "V1e"])}
+    if (Mif[i+95, "V1e"] == 0){
+      rV1e3 = rV1e2
+    } else
+      {rV1e3 = rV1e2 * (1 - (Mif[i+95, "V1etV1i"] + Mif[i+95, "V1etV2e"])/Mif[i+95, "V1e"])}
+    if (Mif[i+96, "V1e"] == 0){
+      rV1e4 = rV1e3
+    } else
+      {rV1e4 = rV1e3 * (1 - (Mif[i+96, "V1etV1i"] + Mif[i+96, "V1etV2e"])/Mif[i+96, "V1e"])}
+    if (Mif[i+97, "V1e"] == 0){
+      rV1e5 = rV1e4
+    }  else
+      {rV1e5 = rV1e4 * (1 - (Mif[i+97, "V1etV1i"] + Mif[i+97, "V1etV2e"])/Mif[i+97, "V1e"])}
+    if (Mif[i+98, "V1e"] == 0){
+      rV1e6 = rV1e5
+    } else
+      {rV1e6 = rV1e5 * (1 - (Mif[i+98, "V1etV1i"] + Mif[i+98, "V1etV2e"])/Mif[i+98, "V1e"])}
+    if (Mif[i+99, "V1e"] == 0){
+      rV1e7 = rV1e6
+    }  else
+      {rV1e7 = rV1e6 * (1 - (Mif[i+99, "V1etV1i"] + Mif[i+99, "V1etV2e"])/Mif[i+99, "V1e"])}
+  
+  Mif[i+100, "V1etV1r"] = rV1e7
+  
+## Lagged transition code. In essence:
+  # 1. A proportion of those entering the compartment X will progress to compartment Y in n days.
+  # (here, (S->V1e) -> V1r) * constant corresponding to infection vaccine reduction after 7 days.
+  # 2. However, during that time some will have moved to other compartments (i.e. V1e -> V1e;
+  # V1e -> V2e).
+  # 3. Thus for each day the 'initial entry' cohort is attritted proportionately by those leaving the compartment.
+  # 4. (The ugly if/else logic is to avoid div/0 issues)
+  
+  Mif[i+100, "V1etV1i"] = R/7 * Mif[i+100,"V1e"] * (Mif[i+100, "I"]+ Mif[i+100, "V1i"]+ Mif[i+100, "V2i"])
+    #Rate of infection in those vaccinated, as before
+  
+  if((Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"]) == 0){
+    Mif[i+100, "V1etV2e"] = 0
+  } else {
+  Mif[i+100, "V1etV2e"] = V1tV2 * Mif[i+100, "V1e"] / (Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"])}
+    #Rate of booster allocation proportion to V1e / All V1
+  
+  ## FROM V1i
+  if (Mif[i+93, "V1i"] == 0){
+    rV1i1 = Mif[i+93, "V1etV1i"]
+  } else
+  {rV1i1 = Mif[i+93, "V1etV1i"]*(1 - (Mif[i+93, "V1itV2i"]/Mif[i+93, "V1i"]))}
+  if (Mif[i+94, "V1i"] == 0){
+    rV1i2 = rV1i1
+  } else
+  {rV1i2 = rV1i1 * (1 - Mif[i+94, "V1itV2i"]/Mif[i+94, "V1i"])}
+  if (Mif[i+95, "V1i"] == 0){
+    rV1i3 = rV1i2
+  } else
+  {rV1i3 = rV1i2 * (1 - Mif[i+95, "V1itV2i"]/Mif[i+95, "V1i"])}
+  if (Mif[i+96, "V1i"] == 0){
+    rV1i4 = rV1i3
+  } else
+  {rV1i4 = rV1i3 * (1 - Mif[i+96, "V1itV2i"]/Mif[i+96, "V1i"])}
+  if (Mif[i+97, "V1i"] == 0){
+    rV1i5 = rV1i4
+  }  else
+  {rV1i5 = rV1i4 * (1 - Mif[i+97, "V1itV2i"]/Mif[i+97, "V1i"])}
+  if (Mif[i+98, "V1i"] == 0){
+    rV1i6 = rV1i5
+  } else
+  {rV1i6 = rV1i5 * (1 - Mif[i+98, "V1itV2i"]/Mif[i+98, "V1i"])}
+  if (Mif[i+99, "V1i"] == 0){
+    rV1i7 = rV1i6
+  }  else
+    {rV1i7 = rV1i6 * (1 - Mif[i+99, "V1itV2i"]/Mif[i+99, "V1i"])}
+  
+  Mif[i+100, "V1itV1r"] = rV1i7
+    # Again, rate of recovery, but noting loss of people due to competing vaccination over time period 
+  
+  if((Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"]) == 0){
+    Mif[i+100, "V1itV2i"] = 0
+  } else {
+  Mif[i+100, "V1itV2i"] = V1tV2 * Mif[i+100, "V1i"] / (Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"])}
+  #Rate of booster allocation proportion to V1i / All V1
+  
+  
+  ## FROM V1r
+  if((Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"]) == 0){
+    Mif[i+100, "V1rtV2r"] = 0
+  } else {
+  Mif[i+100, "V1rtV2r"] = V1tV2 * Mif[i+100, "V1r"] / (Mif[i+100, "V1n"] + Mif[i+100, "V1e"] + Mif[i+100, "V1i"] + Mif[i+100, "V1r"])}
+  #Rate of booster allocation proportion to V1i / All V1
+  
+  
+  ##From V2n
+  Mif[i+100, "V2ntI"] = R/7 * Mif[i+100,"V2n"] * (Mif[i+100, "I"]+Mif[i+10, "V1i"]+Mif[i+100, "V2i"])
+  #Rate of infection in those vaccinated, as before
+  
+  
+  ##From V2e
+  if (Mif[i+93, "V2e"] == 0){
+    rV2e1 = Mif[i+93, "V1ntV2e"]+Mif[i+93, "V1etV2e"]
+  } else
+  {rV2e1 = (Mif[i+93, "V1ntV2e"]+Mif[i+93, "V1etV2e"])*(1 - (Mif[i+93, "V2etV2i"]/Mif[i+93, "V2e"]))}
+  if (Mif[i+94, "V2e"] == 0){
+    rV2e2 = rV2e1
+  } else
+  {rV2e2 = rV2e1 * (1 - Mif[i+94, "V1itV2i"]/Mif[i+94, "V2e"])}
+  if (Mif[i+95, "V2e"] == 0){
+    rV2e3 = rV2e2
+  } else
+  {rV2e3 = rV2e2 * (1 - Mif[i+95, "V1itV2i"]/Mif[i+95, "V2e"])}
+  if (Mif[i+96, "V2e"] == 0){
+    rV2e4 = rV2e3
+  } else
+  {rV2e4 = rV2e3 * (1 - Mif[i+96, "V1itV2i"]/Mif[i+96, "V2e"])}
+  if (Mif[i+97, "V2e"] == 0){
+    rV2e5 = rV2e4
+  }  else
+  {rV2e5 = rV2e4 * (1 - Mif[i+97, "V1itV2i"]/Mif[i+97, "V2e"])}
+  if (Mif[i+98, "V2e"] == 0){
+    rV2e6 = rV2e5
+  } else
+  {rV2e6 = rV2e5 * (1 - Mif[i+98, "V1itV2i"]/Mif[i+98, "V2e"])}
+  if (Mif[i+99, "V2e"] == 0){
+    rV2e7 = rV2e6
+  }  else
+  {rV2e7 = rV2e6 * (1 - Mif[i+99, "V1itV2i"]/Mif[i+99, "V2e"])}
+  
+  Mif[i+100, "V2etV2r"] = rV2e7
+    
+  Mif[i+100, "V2etV2i"] = R/7 * Mif[i+100,"V2e"] * (Mif[i+100, "I"]+Mif[i+100, "V1i"]+Mif[i+100, "V2i"])
+  #Rate of infection in those vaccinated, as before
+  
+  ##From V2i
+  Mif[i+100, "V2itV2r"] = Mif[i+93, "V2etV2i"] + Mif[i+93, "V1itV2i"]
+  
+  
+  ###UPDATING STATES
+  Mif[i+101, "S"] = Mif[i+100, "S"] - Mif[i+100, "StI"] - Mif[i+100, "StV1e"] - Mif[i+100, "StV1n"]
+  Mif[i+101, "I"] = Mif[i+100, "I"] + Mif[i+100, "StI"] + Mif[i+100, "V1ntI"] + Mif[i+100, "V2ntI"] - Mif[i+100, "ItR"] - Mif[i+100, "ItD"]
+  Mif[i+101, "R"] = Mif[i+100, "R"] + Mif[i+100, "ItR"]
+  Mif[i+101, "D"] = Mif[i+100, "D"] + Mif[i+100, "ItD"]
+  Mif[i+101, "V1n"] = Mif[i+100, "V1n"] + Mif[i+100, "StV1n"] - Mif[i+100, "V1ntI"] - Mif[i+100, "V1ntV2n"] - Mif[i+100, "V1ntV2e"]
+  Mif[i+101, "V1e"] = Mif[i+100, "V1e"] + Mif[i+100, "StV1e"] - Mif[i+100, "V1etV1i"] - Mif[i+100, "V1etV2e"]
+  Mif[i+101, "V1i"] = Mif[i+100, "V1i"] + Mif[i+100, "V1etV1i"] - Mif[i+100, "V1itV2i"] - Mif[i+100, "V1itV1r"]
+  Mif[i+101, "V1r"] = Mif[i+100, "V1r"] + Mif[i+100, "V1etV1r"] + Mif[i+100, "V1itV1r"] - Mif[i+100, "V1rtV2r"]
+  Mif[i+101, "V2n"] = Mif[i+100, "V2n"] + Mif[i+100, "V1ntV2n"] - Mif[i+100, "V2ntI"]
+  Mif[i+101, "V2e"] = Mif[i+100, "V2e"] + Mif[i+100, "V1ntV2e"] + Mif[i+100, "V1etV2e"] - Mif[i+100, "V2etV2i"] - Mif[i+100, "V2etV2r"]
+  Mif[i+101, "V2i"] = Mif[i+100, "V2i"] + Mif[i+100, "V1itV2i"] + Mif[i+100, "V2etV2i"] - Mif[i+100, "V2itV2r"]
+  Mif[i+101, "V2r"] = Mif[i+100, "V2r"] + Mif[i+100, "V2itV2r"] + Mif[i+100, "V1rtV2r"]
+
+  }
+
+
+## Quick and dirty epi curve
+PS = (Mif[,"S"] + Mif[,"V1n"] + Mif[,"V2n"] + Mif[,"V1e"] + Mif[,"V2e"])
+PI = (Mif[,"I"] + Mif[,"V1i"] + Mif[,"V2i"])
+PD = (Mif[,"D"])
+PR = (Mif[,"R"]+ Mif[,"V1r"] + Mif[,"V2r"])
+
+data = rbind(PS, PI, PD, PR)
+data1 = t(data)
+matplot(data1)
